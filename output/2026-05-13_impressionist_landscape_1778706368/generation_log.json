@@ -1,0 +1,25 @@
+{
+  "date": "2026-05-13",
+  "style": "Impressionist Landscape",
+  "variation": "Sunlit autumn forest path, burnt orange and golden yellow",
+  "prompt_raw": "Impressionist Landscape \u2014 Sunlit autumn forest path, burnt orange and golden yellow",
+  "prompt_enhanced": "A sunlit autumn forest path rendered in oil on canvas, using loose impressionist brushwork in the tradition of the French Impressionist movement, with thick impasto strokes of burnt orange, golden yellow, and warm amber layering the canopy overhead. Soft diffused golden hour light filters through the treeline, casting dappled pools of honey and ochre across a winding dirt path that draws the eye along a dynamic diagonal from the lower foreground into the atmospheric haze of the middle distance. Atmospheric perspective softens distant trees into whispers of sage and pale gold. Visible canvas texture breathes beneath every stroke, with energetic directional brushwork describing rustling leaves and swaying branches. Composition follows the rule of thirds, balancing airy sky against richly textured forest floor. Photorealistic painting detail, ultra high resolution, 300 DPI print quality, museum quality fine art, Etsy wall art bestseller.",
+  "image_provider": "fal",
+  "image_url_original": "",
+  "source_image_size_kb": 406.8,
+  "source_image_dimensions": "768x1024",
+  "sizes_generated": [
+    "5x7",
+    "8x10",
+    "11x14",
+    "16x20",
+    "18x24",
+    "24x36",
+    "A4",
+    "A3"
+  ],
+  "generation_time_seconds": 12.11,
+  "total_pipeline_time_seconds": 29.03,
+  "estimated_cost_usd": 0.05,
+  "status": "success"
+}
