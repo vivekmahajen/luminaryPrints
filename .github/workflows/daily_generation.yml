@@ -1,0 +1,41 @@
+name: Daily Art Generation
+
+on:
+  schedule:
+    - cron: '0 7 * * *'    # 7:00 AM UTC daily
+  workflow_dispatch:         # Manual trigger button in GitHub UI
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          IDEOGRAM_API_KEY: ${{ secrets.IDEOGRAM_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ secrets.GITHUB_REPO }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: python main.py
+
+      - name: Commit generated files
+        run: |
+          git config user.name "ArtPilot Bot"
+          git config user.email "bot@artpilot.ai"
+          git add output/ state.json output/index.md || true
+          git diff --staged --quiet || git commit -m "Daily print: $(date +%Y-%m-%d)"
+          git push

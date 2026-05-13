@@ -1,0 +1,6 @@
+anthropic>=0.34.0
+openai>=1.40.0
+requests>=2.32.0
+Pillow>=10.4.0
+python-dotenv>=1.0.0
+schedule>=1.2.0

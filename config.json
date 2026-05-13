@@ -1,0 +1,29 @@
+{
+  "schedule_time": "07:00",
+  "timezone": "America/New_York",
+  "image_provider": "fal",
+  "output_dir": "output",
+  "github_branch": "main",
+  "generate_sizes": ["5x7", "8x10", "11x14", "16x20", "18x24", "24x36", "A4", "A3"],
+  "jpeg_quality": 97,
+  "max_upscale_factor": 3.0,
+  "keep_source_image": true,
+  "claude_model": "claude-sonnet-4-6",
+  "prompt_max_tokens": 400,
+  "metadata_max_tokens": 800,
+  "image_generation_timeout_seconds": 180,
+  "max_retries_per_stage": 2,
+  "retry_backoff_seconds": 15,
+  "alert_on_failure": true,
+  "alert_email": "",
+  "log_level": "INFO",
+  "etsy_digital_price": 9.99,
+  "etsy_bundle_price": 19.99,
+  "style_rotation_order": [
+    "textured_abstract",
+    "impressionist_landscape",
+    "nature_botanical",
+    "floral_pop",
+    "contemporary_portrait"
+  ]
+}

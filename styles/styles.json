@@ -1,0 +1,79 @@
+{
+  "styles": [
+    {
+      "id": "textured_abstract",
+      "name": "Textured Abstract",
+      "base_description": "Thick impasto-style oil painting aesthetic, bold palette knife marks, three-dimensional texture visible in the image. Appeals to buyers decorating modern, minimalist, and boho interiors. Neutral colour palettes outsell vibrant ones 3:1 in this category.",
+      "technique_hint": "impasto oil painting, palette knife texture, thick paint application",
+      "variations": [
+        "Warm champagne, ivory and soft gold",
+        "Moody navy, deep teal and bronze",
+        "Soft blush, dusty rose and warm white",
+        "Charcoal, silver and warm grey",
+        "Sage green, olive and warm sand",
+        "Burnt orange, rust and cream",
+        "Deep plum, mauve and dusty rose"
+      ]
+    },
+    {
+      "id": "impressionist_landscape",
+      "name": "Impressionist Landscape",
+      "base_description": "Loose painterly brushwork in the tradition of Monet, Pissarro and Renoir. Atmospheric light, visible paint texture, emotional warmth. Consistently one of the top-selling categories for wall art globally — landscapes feel universally safe and calming to buyers.",
+      "technique_hint": "loose impressionist brushwork, atmospheric perspective, visible paint texture",
+      "variations": [
+        "Golden hour meadow, wildflowers, warm amber and soft purple",
+        "Misty morning lake, silver blue and pale lavender reflections",
+        "Sunlit autumn forest path, burnt orange and golden yellow",
+        "Coastal cliffs at dusk, coral pink and turquoise sea",
+        "Lavender fields under a deep blue summer sky",
+        "Snow-covered village with warm glowing windows",
+        "Cherry blossom park in spring, soft pink and fresh green"
+      ]
+    },
+    {
+      "id": "nature_botanical",
+      "name": "Nature and Botanical",
+      "base_description": "Detailed botanical studies combining scientific precision with artistic beauty. Watercolour and gouache aesthetic, white or cream background. Strong sellers on Etsy for nurseries, kitchens, home offices, and as gifts. Sets of 3 or 4 matching botanical prints are particularly high-converting.",
+      "technique_hint": "botanical watercolour study, precise linework, transparent washes",
+      "variations": [
+        "Lush tropical monstera leaves, deep emerald and forest green",
+        "Wildflower bouquet, soft watercolour pinks, purples and yellow",
+        "Single peony bloom, blush pink and ivory",
+        "Eucalyptus branches, sage green and silver",
+        "Sunflower study, vibrant golden yellow and deep brown centre",
+        "Dried pampas grass and cotton stems, warm neutral beige",
+        "Fern frond study, muted green on cream parchment"
+      ]
+    },
+    {
+      "id": "floral_pop",
+      "name": "Floral Pop",
+      "base_description": "Bold, oversized floral paintings with graphic intensity and saturated colour — the breakout trend of 2026 on Etsy. Maximalist composition, strong contrast, contemporary art fair aesthetic. These photograph exceptionally well for Etsy listings and drive impulse purchases from buyers scrolling on mobile.",
+      "technique_hint": "bold graphic florals, saturated colour, maximalist composition, contemporary acrylic",
+      "variations": [
+        "Giant cobalt blue peonies against pure cream white",
+        "Oversized red poppies, bold crimson and jet black",
+        "Tropical hibiscus, electric pink and deep coral",
+        "Abstract sunflowers, hot yellow and deep violet",
+        "Magnolia blooms, pure white and forest green",
+        "Wildflower explosion, saturated rainbow of pinks, purples and yellows",
+        "Single oversized dahlia, deep burgundy and blush"
+      ]
+    },
+    {
+      "id": "contemporary_portrait",
+      "name": "Contemporary Portrait / Figurative",
+      "base_description": "Modern figurative art and portraiture with expressive brushwork. No specific real people — abstract or silhouette-based figures only. Strong sellers in the higher price bracket. Popular with buyers furnishing living rooms, home offices and studios.",
+      "technique_hint": "expressive figurative brushwork, abstract silhouette, gestural marks",
+      "variations": [
+        "Abstract female silhouette, warm terracotta and gold leaf accents",
+        "Faceless figure in motion, cobalt blue and clean white",
+        "Seated figure, muted earthy tones with pops of ochre",
+        "Standing silhouette against sunset, deep orange and coral",
+        "Abstract portrait with floral elements, blush and forest green",
+        "Minimalist figure study, charcoal gestural lines on cream",
+        "Expressive face with colour washes, deep purple and turquoise"
+      ]
+    }
+  ]
+}
