@@ -1,6 +1,7 @@
 # Daily Art Prints — All Generated Prints
 
 | Date | Style | Variation | Folder |
+| 2026-05-13 | Custom Pet Portrait | Swirling gold and ivory impasto abstract background, warm studio spotlight | [View](./2026-05-13_custom_pet_portrait/) |
 | 2026-05-13 | Custom Pet Portrait | Bold cobalt blue and burnt orange abstract expressionist background, dramatic rim light | [View](./2026-05-13_custom_pet_portrait_1778714411/) |
 | 2026-05-13 | Custom Faceless Portrait | Warm terracotta and gold leaf accents, abstract expressionist background | [View](./2026-05-13_custom_faceless_portrait/) |
 | 2026-05-13 | Custom Pet Portrait | Impressionist oil painting, soft warm background, golden hour light | [View](./2026-05-13_custom_pet_portrait/) |
