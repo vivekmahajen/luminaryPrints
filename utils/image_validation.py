@@ -6,7 +6,7 @@ logger = get_logger(__name__)
 
 JPEG_MAGIC = b"\xff\xd8\xff"
 PNG_MAGIC = b"\x89PNG"
-MIN_FILE_SIZE_KB = 200
+MIN_FILE_SIZE_KB = 50  # fal.ai 768x1024 JPEGs are typically 130-220 KB
 MIN_WIDTH = 512
 MIN_HEIGHT = 768
 

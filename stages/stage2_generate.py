@@ -95,11 +95,23 @@ def generate_image(
 
 
 def _build_provider_order(preferred: str) -> list[str]:
+    """Only include providers whose API keys are configured."""
+    import os
+    key_map = {
+        "fal": "FAL_API_KEY",
+        "dalle3": "OPENAI_API_KEY",
+        "ideogram": "IDEOGRAM_API_KEY",
+    }
     all_providers = ["fal", "dalle3", "ideogram"]
-    if preferred in all_providers:
-        all_providers.remove(preferred)
-        return [preferred] + all_providers
-    return all_providers
+    available = [p for p in all_providers if os.getenv(key_map[p], "").strip()]
+
+    if not available:
+        raise RuntimeError("No image provider API keys are configured in .env")
+
+    if preferred in available:
+        available.remove(preferred)
+        return [preferred] + available
+    return available
 
 
 def _call_provider(name: str, prompt: str) -> bytes:
