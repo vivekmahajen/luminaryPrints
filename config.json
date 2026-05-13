@@ -10,7 +10,7 @@
   "keep_source_image": true,
   "claude_model": "claude-sonnet-4-6",
   "prompt_max_tokens": 400,
-  "metadata_max_tokens": 800,
+  "metadata_max_tokens": 2048,
   "image_generation_timeout_seconds": 180,
   "max_retries_per_stage": 2,
   "retry_backoff_seconds": 15,
