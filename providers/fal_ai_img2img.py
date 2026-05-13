@@ -1,3 +1,4 @@
+import os
 import time
 import requests
 from pathlib import Path
@@ -6,36 +7,30 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-FAL_STORAGE_URL = "https://fal.run/fal-ai/storage/upload"
 FAL_REDUX_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1/redux"
 POLL_INTERVAL = 3
 MAX_POLLS = 60
 
 
 def upload_image_to_fal(image_path: str | Path) -> str:
-    """Upload a local image to fal.ai storage and return its public URL."""
+    """Upload a local image to fal.ai storage using the official fal-client and return its URL."""
     api_key = get_env("FAL_API_KEY")
     image_path = Path(image_path)
 
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    suffix = image_path.suffix.lower()
-    mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
-
     logger.info(f"fal.ai: Uploading reference image {image_path.name} ({image_path.stat().st_size // 1024} KB)")
 
-    with open(image_path, "rb") as f:
-        resp = requests.post(
-            FAL_STORAGE_URL,
-            headers={"Authorization": f"Key {api_key}"},
-            files={"file": (image_path.name, f, mime)},
-            timeout=60,
-        )
-    resp.raise_for_status()
-    url = resp.json().get("url") or resp.json().get("access_url")
+    # fal-client reads FAL_KEY from environment
+    os.environ["FAL_KEY"] = api_key
+
+    import fal_client
+    url = fal_client.upload_file(str(image_path))
+
     if not url:
-        raise RuntimeError(f"fal.ai storage upload returned no URL: {resp.text[:200]}")
+        raise RuntimeError("fal_client.upload_file returned no URL")
+
     logger.info(f"fal.ai: Reference image uploaded — {url}")
     return url
 
