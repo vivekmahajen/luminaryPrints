@@ -4,11 +4,16 @@ ArtPilot Daily — AI Art Print Generator
 Entry point. Orchestrates all 6 pipeline stages.
 
 Usage:
-  python main.py                              # Normal run (next in rotation)
-  python main.py --dry-run                    # No API calls, no GitHub push
-  python main.py --style textured_abstract    # Override style
-  python main.py --variation "warm champagne" # Override variation
-  python main.py --schedule                   # Run on schedule (cron-replacement)
+  python main.py                                    # Normal run (next in rotation)
+  python main.py --dry-run                          # No API calls, no GitHub push
+  python main.py --style textured_abstract          # Override style
+  python main.py --variation "warm champagne"       # Override variation
+  python main.py --schedule                         # Run on schedule (cron-replacement)
+
+  # Custom portrait modes:
+  python main.py --custom-image pet.jpg --portrait-type pet
+  python main.py --custom-image photo.jpg --portrait-type faceless
+  python main.py --custom-image pet.jpg --portrait-type pet --dry-run
 """
 
 import argparse
@@ -34,6 +39,10 @@ from stages.stage3_resize import resize_to_all_sizes
 from stages.stage4_metadata import generate_metadata
 from stages.stage5_organise import organise_outputs, update_index
 from stages.stage6_github import push_to_github
+from stages.stage_custom_portrait import (
+    build_custom_prompt, get_next_variation,
+    advance_variation_state, PORTRAIT_TYPES,
+)
 
 logger = get_logger("main")
 
@@ -232,13 +241,156 @@ def run_pipeline(
         return False
 
 
+def run_custom_portrait(
+    image_path: str,
+    portrait_type: str,
+    dry_run: bool = False,
+) -> bool:
+    pipeline_start = time.time()
+    config = load_config()
+    init_db()
+    state = load_state()
+
+    pt_info = PORTRAIT_TYPES.get(portrait_type)
+    if not pt_info:
+        logger.error(f"Unknown portrait type '{portrait_type}'. Use: pet or faceless")
+        return False
+
+    variation = get_next_variation(portrait_type, state)
+    style_name = pt_info["label"]
+    style_id = pt_info["style_id"]
+    date_str = datetime.now().date().isoformat()
+
+    logger.info(f"=== Custom Portrait | {date_str} | {style_name} | {variation} ===")
+    logger.info(f"Reference image: {image_path}")
+
+    run_id = insert_run({
+        "date": date_str,
+        "style_id": style_id,
+        "style_name": style_name,
+        "variation": variation,
+    })
+
+    output_dir = Path(config.get("output_dir", "output"))
+    output_dir.mkdir(exist_ok=True)
+
+    try:
+        # Stage 1: Generate portrait-specific prompt
+        logger.info("── Stage 1: Custom portrait prompt")
+        t1 = time.time()
+        enhanced_prompt = build_custom_prompt(portrait_type, variation, dry_run=dry_run)
+        logger.info(f"Stage 1 done in {time.time() - t1:.1f}s")
+        update_run(run_id, {"prompt_enhanced": enhanced_prompt})
+
+        # Stage 2: Image-to-image generation using reference photo
+        logger.info("── Stage 2: Image-to-image generation")
+        t2 = time.time()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_source = Path(tmpdir) / "source_original.jpg"
+
+            if dry_run:
+                from stages.stage2_generate import generate_image
+                provider, cost = generate_image(enhanced_prompt, tmp_source, dry_run=True)
+            else:
+                from providers.fal_ai_img2img import upload_image_to_fal, generate_custom_portrait
+                ref_url = upload_image_to_fal(image_path)
+                image_bytes = generate_custom_portrait(enhanced_prompt, ref_url, strength=0.80)
+                tmp_source.write_bytes(image_bytes)
+                provider, cost = "fal_redux", 0.05
+
+            generation_time = time.time() - t2
+            logger.info(f"Stage 2 done in {generation_time:.1f}s")
+            update_run(run_id, {"image_provider": provider})
+
+            # Stage 3: Resize
+            logger.info("── Stage 3: Resizing to print dimensions")
+            sizes_generated = resize_to_all_sizes(tmp_source, Path(tmpdir))
+
+            # Stage 4: Metadata
+            logger.info("── Stage 4: Etsy metadata")
+            metadata = generate_metadata(
+                style_name=style_name,
+                colour_variation=variation,
+                enhanced_prompt=enhanced_prompt,
+                sizes_generated=sizes_generated,
+                dry_run=dry_run,
+            )
+            update_run(run_id, {"etsy_title": metadata.get("title", "")})
+
+            # Stage 5: Organise
+            logger.info("── Stage 5: Organising files")
+            folder_path = organise_outputs(
+                date_str=date_str,
+                style_id=style_id,
+                style_name=style_name,
+                colour_variation=variation,
+                enhanced_prompt=enhanced_prompt,
+                base_prompt=f"{style_name} — {variation}",
+                source_image_path=tmp_source,
+                sizes_generated=sizes_generated,
+                etsy_metadata=metadata,
+                image_provider=provider,
+                generation_time_seconds=generation_time,
+                total_pipeline_time_seconds=time.time() - pipeline_start,
+                estimated_cost_usd=cost,
+                status="success",
+            )
+
+        update_index(output_dir, date_str, style_name, variation, folder_path.name)
+        update_run(run_id, {"output_folder": str(folder_path), "sizes_generated": ",".join(sizes_generated)})
+
+        # Stage 6: GitHub push
+        logger.info("── Stage 6: Pushing to GitHub")
+        github_url = push_to_github(folder_path, date_str, style_name, dry_run=dry_run)
+
+        update_run(run_id, {"github_url": github_url, "status": "success",
+                            "generation_time_sec": generation_time, "estimated_cost_usd": cost})
+
+        # Advance variation state
+        new_state = advance_variation_state(portrait_type, state)
+        save_state(new_state)
+
+        logger.info(f"=== Custom portrait complete in {time.time() - pipeline_start:.1f}s ===")
+        logger.info(f"Output folder: {folder_path}")
+        return True
+
+    except Exception as e:
+        logger.exception(f"Custom portrait pipeline failed: {e}")
+        update_run(run_id, {"status": "failed", "error_message": str(e)})
+        if config.get("alert_on_failure", True):
+            send_failure_alert(
+                subject=f"Custom portrait failed — {date_str}",
+                body=f"Type: {portrait_type}\nImage: {image_path}\nError: {e}",
+            )
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="ArtPilot Daily — AI Art Print Generator")
     parser.add_argument("--dry-run", action="store_true", help="Run all stages without API calls or GitHub push")
     parser.add_argument("--style", type=str, help="Override style (e.g. textured_abstract)")
     parser.add_argument("--variation", type=str, help="Override colour variation")
     parser.add_argument("--schedule", action="store_true", help="Run on schedule defined in config.json")
+    parser.add_argument("--custom-image", type=str, help="Path to reference photo for custom portrait")
+    parser.add_argument("--portrait-type", type=str, choices=["pet", "faceless"],
+                        help="Type of custom portrait: pet or faceless")
     args = parser.parse_args()
+
+    # Custom portrait mode
+    if args.custom_image:
+        if not args.portrait_type:
+            print("Error: --portrait-type is required with --custom-image (use: pet or faceless)")
+            sys.exit(1)
+        image_path = Path(args.custom_image)
+        if not args.dry_run and not image_path.exists():
+            print(f"Error: Image file not found: {image_path}")
+            sys.exit(1)
+        success = run_custom_portrait(
+            image_path=str(image_path),
+            portrait_type=args.portrait_type,
+            dry_run=args.dry_run,
+        )
+        sys.exit(0 if success else 1)
 
     if args.schedule:
         import schedule as sched
