@@ -1,0 +1,25 @@
+{
+  "date": "2026-05-13",
+  "style": "Textured Abstract",
+  "variation": "Charcoal, silver and warm grey",
+  "prompt_raw": "Textured Abstract \u2014 Charcoal, silver and warm grey",
+  "prompt_enhanced": "Thick impasto oil painting on deep-set canvas, palette knife marks building dramatic three-dimensional ridges and furrows across the composition, rendered in a sophisticated palette of charcoal, silver, and warm grey with subtle undertones of taupe and cool white, following the Contemporary Abstract Expressionist tradition with restrained, contemplative energy, directional palette knife strokes sweeping in bold diagonal rhythms from lower left toward upper right, creating dynamic tension across the picture plane, soft diffused studio lighting raking gently across the textured surface to reveal every raised edge and shadowed valley of thick paint application, impasto peaks catching silver light whilst charcoal depths recede into quiet shadow, composition balanced across a centred focal point of intense textural density that softens toward quieter edges, visible canvas weave beneath translucent grey glazes contrasting with opaque sculpted ridges, photorealistic painting detail, ultra high resolution, 300 DPI print quality, museum quality fine art, Etsy wall art bestseller.",
+  "image_provider": "fal",
+  "image_url_original": "",
+  "source_image_size_kb": 301.5,
+  "source_image_dimensions": "768x1024",
+  "sizes_generated": [
+    "5x7",
+    "8x10",
+    "11x14",
+    "16x20",
+    "18x24",
+    "24x36",
+    "A4",
+    "A3"
+  ],
+  "generation_time_seconds": 7.61,
+  "total_pipeline_time_seconds": 26.73,
+  "estimated_cost_usd": 0.05,
+  "status": "success"
+}
