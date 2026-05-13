@@ -1,6 +1,8 @@
 .env
 pipeline.db
-output/
+output/*/
+output/*.jpg
+output/*.png
 logs/
 __pycache__/
 *.pyc
