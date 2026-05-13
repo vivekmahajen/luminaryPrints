@@ -1,0 +1,25 @@
+{
+  "date": "2026-05-13",
+  "style": "Textured Abstract",
+  "variation": "Sage green, olive and warm sand",
+  "prompt_raw": "Textured Abstract \u2014 Sage green, olive and warm sand",
+  "prompt_enhanced": "Thick impasto oil painting on deep-set linen canvas, sage green and olive tones layered over warm sand undertones, built up with heavy palette knife strokes leaving pronounced three-dimensional ridges and peaks of paint that catch soft directional side lighting, casting delicate micro-shadows across the textured surface. Composition follows a loose rule of thirds with organic diagonal movements of tone sweeping from lower left to upper right, creating quiet visual rhythm without focal rigidity. Paint application varies from thick sculptural peaks to thinner scraped valleys revealing warm sand beneath, evoking the Contemporary Abstract Expressionist tradition with a meditative, grounded sensibility suited to modern minimalist and organic bohemian interiors. Visible raw linen texture emerges through sparsely applied mid-ground passages, adding tactile depth. Photorealistic painting detail, ultra high resolution, 300 DPI print quality, museum quality fine art, Etsy wall art bestseller.",
+  "image_provider": "fal",
+  "image_url_original": "",
+  "source_image_size_kb": 215.9,
+  "source_image_dimensions": "768x1024",
+  "sizes_generated": [
+    "5x7",
+    "8x10",
+    "11x14",
+    "16x20",
+    "18x24",
+    "24x36",
+    "A4",
+    "A3"
+  ],
+  "generation_time_seconds": 4.78,
+  "total_pipeline_time_seconds": 25.41,
+  "estimated_cost_usd": 0.05,
+  "status": "success"
+}
