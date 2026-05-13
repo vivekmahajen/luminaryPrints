@@ -59,7 +59,7 @@ def organise_outputs(
 
     # Write etsy_listing.json
     etsy_path = folder_path / "etsy_listing.json"
-    etsy_path.write_text(json.dumps(etsy_metadata, indent=2, ensure_ascii=False))
+    etsy_path.write_text(json.dumps(etsy_metadata, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Stage 5: Written etsy_listing.json")
 
     # Write social_media.json
@@ -67,7 +67,7 @@ def organise_outputs(
         "instagram_caption": etsy_metadata.get("instagram_caption", ""),
         "pinterest_caption": etsy_metadata.get("pinterest_caption", ""),
     }
-    (folder_path / "social_media.json").write_text(json.dumps(social, indent=2))
+    (folder_path / "social_media.json").write_text(json.dumps(social, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Write generation_log.json
     log_data = {
@@ -88,7 +88,7 @@ def organise_outputs(
         "estimated_cost_usd": round(estimated_cost_usd, 4),
         "status": status,
     }
-    (folder_path / "generation_log.json").write_text(json.dumps(log_data, indent=2))
+    (folder_path / "generation_log.json").write_text(json.dumps(log_data, indent=2), encoding="utf-8")
     logger.info(f"Stage 5: Written generation_log.json — status={status}")
 
     return folder_path
@@ -118,7 +118,7 @@ def update_index(
     new_row = f"| {date_str} | {style_name} | {colour_variation} | [View](./{folder_name}/) |"
 
     if index_path.exists():
-        content = index_path.read_text()
+        content = index_path.read_text(encoding="utf-8")
         lines = content.splitlines()
         # Insert new row after the header rows (first 3 lines)
         insert_pos = 3
@@ -127,7 +127,7 @@ def update_index(
                 insert_pos = i
                 break
         lines.insert(insert_pos, new_row)
-        index_path.write_text("\n".join(lines) + "\n")
+        index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     else:
         header = (
             "# Daily Art Prints — All Generated Prints\n\n"
@@ -135,6 +135,6 @@ def update_index(
             "|------|-------|-----------|--------|\n"
             f"{new_row}\n"
         )
-        index_path.write_text(header)
+        index_path.write_text(header, encoding="utf-8")
 
     logger.info("Stage 5: Updated index.md")
