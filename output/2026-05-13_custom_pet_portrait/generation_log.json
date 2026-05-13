@@ -1,0 +1,25 @@
+{
+  "date": "2026-05-13",
+  "style": "Custom Pet Portrait",
+  "variation": "Swirling gold and ivory impasto abstract background, warm studio spotlight",
+  "prompt_raw": "Custom Pet Portrait \u2014 Swirling gold and ivory impasto abstract background, warm studio spotlight",
+  "prompt_enhanced": "Hyperrealistic 3D portrait of the pet from the reference photo, centered and emerging from the canvas with striking depth and dimension, the animal's face, fur texture, and expressive eyes rendered in breathtaking photorealistic clarity as they physically surge forward from the surface. The background explodes in a luxurious swirling symphony of molten gold and creamy ivory, built up with thick impasto brushstrokes and bold palette knife sweeps that create a rich, tactile depth behind the subject. A warm studio spotlight bathes the pet from above, casting golden rim light across every strand of fur and illuminating the eyes with captivating inner warmth, making the subject leap dramatically forward against the painterly swirling abstraction. Ultra high resolution, 300 DPI print quality, museum quality fine art, photorealistic subject against painterly abstract background.",
+  "image_provider": "fal_redux",
+  "image_url_original": "",
+  "source_image_size_kb": 196.6,
+  "source_image_dimensions": "1024x768",
+  "sizes_generated": [
+    "5x7",
+    "8x10",
+    "11x14",
+    "16x20",
+    "18x24",
+    "24x36",
+    "A4",
+    "A3"
+  ],
+  "generation_time_seconds": 10.94,
+  "total_pipeline_time_seconds": 71.13,
+  "estimated_cost_usd": 0.05,
+  "status": "success"
+}
