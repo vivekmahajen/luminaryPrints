@@ -41,7 +41,7 @@ from stages.stage5_organise import organise_outputs, update_index
 from stages.stage6_github import push_to_github
 from stages.stage_custom_portrait import (
     build_custom_prompt, get_next_variation,
-    advance_variation_state, PORTRAIT_TYPES,
+    advance_variation_state, PORTRAIT_TYPES, PORTRAIT_STRENGTH,
 )
 
 logger = get_logger("main")
@@ -294,7 +294,7 @@ def run_custom_portrait(
             else:
                 from providers.fal_ai_img2img import upload_image_to_fal, generate_custom_portrait
                 ref_url = upload_image_to_fal(image_path)
-                image_bytes = generate_custom_portrait(enhanced_prompt, ref_url, strength=0.80)
+                image_bytes = generate_custom_portrait(enhanced_prompt, ref_url, strength=PORTRAIT_STRENGTH)
                 tmp_source.write_bytes(image_bytes)
                 provider, cost = "fal_redux", 0.05
 
