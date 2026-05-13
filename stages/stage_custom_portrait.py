@@ -6,10 +6,9 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# img2img strength: lower = more faithful to reference photo.
-# 0.60 keeps the subject's face/body highly recognisable while the
-# background is transformed into the abstract style.
-PORTRAIT_STRENGTH = 0.60
+# strength 0.85 = strong artistic transformation applied by the prompt
+# (abstract background), while subject shape is preserved from photo.
+PORTRAIT_STRENGTH = 0.85
 
 PORTRAIT_TYPES = {
     "pet": {
