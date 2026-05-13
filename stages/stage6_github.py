@@ -20,6 +20,45 @@ def _get_headers(token: str) -> dict:
     }
 
 
+def _get_or_create_branch(repo: str, branch: str, headers: dict) -> str:
+    """
+    Return the branch name to use. If the configured branch doesn't exist,
+    fall back to the repo's default branch (auto-detected). If the repo is
+    completely empty, initialise it with a README first.
+    """
+    # Check if the configured branch exists
+    resp = requests.get(f"{GITHUB_API}/repos/{repo}/branches/{branch}", headers=headers, timeout=15)
+    if resp.status_code == 200:
+        return branch
+
+    # Get repo info to find default branch
+    repo_resp = requests.get(f"{GITHUB_API}/repos/{repo}", headers=headers, timeout=15)
+    if repo_resp.status_code != 200:
+        logger.warning(f"Stage 6: Could not fetch repo info, using branch '{branch}'")
+        return branch
+
+    repo_data = repo_resp.json()
+    default_branch = repo_data.get("default_branch", "main")
+
+    # If repo is empty (no commits), seed it with a README to create the default branch
+    if repo_data.get("size", 0) == 0:
+        logger.info(f"Stage 6: Repo is empty — initialising with README on '{default_branch}'")
+        import base64 as _b64
+        readme = _b64.b64encode(b"# luminaryPrints\n\nAI Art Print Generator\n").decode()
+        requests.put(
+            f"{GITHUB_API}/repos/{repo}/contents/README.md",
+            json={"message": "Initial commit", "content": readme, "branch": default_branch},
+            headers=headers,
+            timeout=30,
+        )
+
+    if default_branch != branch:
+        logger.warning(
+            f"Stage 6: Branch '{branch}' not found — using default branch '{default_branch}'"
+        )
+    return default_branch
+
+
 def _get_file_sha(repo: str, path: str, branch: str, headers: dict) -> str | None:
     url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
     resp = requests.get(url, headers=headers, params={"ref": branch}, timeout=15)
@@ -106,8 +145,8 @@ def push_to_github(
     config = load_config()
     token = get_env("GITHUB_TOKEN")
     repo = get_env("GITHUB_REPO")
-    branch = config.get("github_branch", "main")
     headers = _get_headers(token)
+    branch = _get_or_create_branch(repo, config.get("github_branch", "main"), headers)
 
     folder_path = Path(folder_path)
     folder_name = folder_path.name
