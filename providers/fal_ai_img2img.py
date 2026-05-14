@@ -3,13 +3,13 @@ import os
 import time
 import requests
 from pathlib import Path
-from PIL import Image, ImageFilter, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from utils.config import get_env
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-FAL_TEXT2IMG_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1"
+FAL_INPAINT_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1/fill"
 POLL_INTERVAL = 3
 MAX_POLLS = 60
 
@@ -22,27 +22,122 @@ def upload_image_to_fal(image_path: str | Path) -> str:
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    logger.info(f"fal.ai: Uploading reference image {image_path.name} ({image_path.stat().st_size // 1024} KB)")
-
+    logger.info(f"fal.ai: Uploading {image_path.name} ({image_path.stat().st_size // 1024} KB)")
     os.environ["FAL_KEY"] = api_key
     import fal_client
     url = fal_client.upload_file(str(image_path))
-
     if not url:
         raise RuntimeError("fal_client.upload_file returned no URL")
-
-    logger.info(f"fal.ai: Reference image uploaded — {url}")
+    logger.info(f"fal.ai: Uploaded — {url}")
     return url
 
 
-def _generate_abstract_background(prompt: str) -> Image.Image:
-    """Generate a pure abstract painting background using Flux Pro text-to-image."""
+def _make_background_mask(image_path: str | Path) -> bytes:
+    """
+    Create an inpainting mask where:
+      WHITE = repaint as abstract (background area)
+      BLACK = keep exactly as-is (subject in center)
+
+    The subject area is a soft oval covering ~65% of the image height
+    centered in the frame. The feathered edge creates a natural blend
+    between the original subject and the AI-generated abstract background.
+    """
+    with Image.open(image_path) as img:
+        w, h = img.size
+
+    # Start with all-white mask (repaint everything)
+    mask = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(mask)
+
+    # Draw a black oval in the center (= keep subject)
+    subject_w = int(w * 0.72)
+    subject_h = int(h * 0.78)
+    x0 = (w - subject_w) // 2
+    y0 = (h - subject_h) // 2
+    x1 = x0 + subject_w
+    y1 = y0 + subject_h
+    draw.ellipse([x0, y0, x1, y1], fill=0)
+
+    # Heavily blur the mask edge so subject blends into the painted background
+    feather = max(int(min(w, h) * 0.10), 20)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
+
+    buf = io.BytesIO()
+    mask.convert("RGB").save(buf, format="PNG")
+    logger.info(f"Mask created: {w}x{h}, subject oval {subject_w}x{subject_h}, feather={feather}px")
+    return buf.getvalue()
+
+
+def _poll_fal_job(request_id: str, model_path: str, headers: dict) -> dict:
+    status_url = f"https://queue.fal.run/{model_path}/requests/{request_id}/status"
+    result_url = f"https://queue.fal.run/{model_path}/requests/{request_id}"
+
+    for poll in range(MAX_POLLS):
+        time.sleep(POLL_INTERVAL)
+        status_resp = requests.get(status_url, headers=headers, timeout=15)
+        status_resp.raise_for_status()
+        status = status_resp.json().get("status", "")
+        logger.info(f"fal.ai: Poll {poll + 1}/{MAX_POLLS} — {status}")
+
+        if status == "COMPLETED":
+            return requests.get(result_url, headers=headers, timeout=30).json()
+        if status in ("FAILED", "ERROR"):
+            raise RuntimeError(f"fal.ai: Job failed — status={status}")
+
+    raise TimeoutError(f"fal.ai: Timed out after {MAX_POLLS * POLL_INTERVAL}s")
+
+
+def generate_custom_portrait(
+    prompt: str,
+    reference_image_url: str,
+    reference_local_path: str = "",
+    strength: float = 0.85,
+) -> bytes:
+    """
+    Inpainting approach — best quality for subject + abstract background:
+
+    1. Create a mask: WHITE = background (repaint as abstract),
+                      BLACK = subject center (keep original photo)
+    2. Send image + mask + abstract prompt to Flux Pro Fill (inpainting)
+    3. Flux repaints only the background as abstract art while
+       preserving the subject pixel-perfect from the original photo
+
+    Result: natural seamless blend — no cutout look, no compositing artifacts.
+    The subject looks like part of the painting, not pasted on top.
+    """
     api_key = get_env("FAL_API_KEY")
     headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
 
+    local_path = reference_local_path if reference_local_path else None
+
+    if not local_path or not Path(local_path).exists():
+        logger.info("Downloading reference image for mask creation")
+        img_bytes = requests.get(reference_image_url, timeout=60).content
+        local_path = "_tmp_portrait_ref.jpg"
+        Path(local_path).write_bytes(img_bytes)
+
+    # Build and upload the mask
+    logger.info("Creating background mask")
+    mask_bytes = _make_background_mask(local_path)
+    os.environ["FAL_KEY"] = api_key
+    import fal_client
+    mask_tmp = "_tmp_portrait_mask.png"
+    Path(mask_tmp).write_bytes(mask_bytes)
+    mask_url = fal_client.upload_file(mask_tmp)
+    Path(mask_tmp).unlink(missing_ok=True)
+    logger.info(f"Mask uploaded — {mask_url}")
+
+    # Inpainting: repaint background only, keep subject
+    abstract_prompt = (
+        f"{prompt} The background surrounding the subject is a bold abstract oil painting "
+        f"with thick impasto brushstrokes, swirling palette knife marks, and rich painterly texture. "
+        f"The subject in the center remains photorealistic and sharp."
+    )
+
     payload = {
-        "prompt": prompt,
-        "image_size": "portrait_4_3",
+        "image_url": reference_image_url,
+        "mask_url": mask_url,
+        "prompt": abstract_prompt,
         "num_inference_steps": 28,
         "guidance_scale": 3.5,
         "num_images": 1,
@@ -50,97 +145,29 @@ def _generate_abstract_background(prompt: str) -> Image.Image:
         "output_format": "jpeg",
     }
 
-    logger.info("fal.ai: Generating abstract background")
-    resp = requests.post(FAL_TEXT2IMG_URL, json=payload, headers=headers, timeout=30)
+    logger.info("fal.ai inpaint: Submitting background repaint request")
+    start = time.time()
+    resp = requests.post(FAL_INPAINT_URL, json=payload, headers=headers, timeout=30)
     resp.raise_for_status()
     job = resp.json()
     request_id = job.get("request_id")
-    status_url = job.get("status_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}/status"
-    result_url = job.get("response_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}"
+    logger.info(f"fal.ai inpaint: Job submitted, request_id={request_id}")
 
-    for poll in range(MAX_POLLS):
-        time.sleep(POLL_INTERVAL)
-        status = requests.get(status_url, headers=headers, timeout=15).json().get("status", "")
-        logger.info(f"fal.ai bg: Poll {poll + 1} — {status}")
-        if status == "COMPLETED":
-            result = requests.get(result_url, headers=headers, timeout=30).json()
-            image_url = result["images"][0]["url"]
-            img_bytes = requests.get(image_url, timeout=60).content
-            logger.info(f"fal.ai: Background generated ({len(img_bytes) // 1024} KB)")
-            return Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-        if status in ("FAILED", "ERROR"):
-            raise RuntimeError("fal.ai: Background generation failed")
+    result = _poll_fal_job(request_id, "fal-ai/flux-pro/v1.1/fill", headers)
+    images = result.get("images", [])
+    if not images:
+        raise RuntimeError("fal.ai inpaint: No images in response")
 
-    raise TimeoutError("fal.ai: Background generation timed out")
+    image_url = images[0].get("url")
+    logger.info(f"fal.ai inpaint: Downloading result from {image_url}")
+    img = requests.get(image_url, timeout=60)
+    img.raise_for_status()
 
+    elapsed = time.time() - start
+    logger.info(f"fal.ai inpaint: Done in {elapsed:.1f}s, {len(img.content) // 1024} KB")
 
-def _composite_subject_onto_background(
-    subject_path: str | Path,
-    background: Image.Image,
-) -> bytes:
-    """
-    Place the subject photo in the center of the abstract background
-    with a soft feathered oval mask so it blends naturally.
-    """
-    bg_w, bg_h = background.size
+    # Clean up temp files
+    if reference_local_path == "" and Path("_tmp_portrait_ref.jpg").exists():
+        Path("_tmp_portrait_ref.jpg").unlink(missing_ok=True)
 
-    # Load and resize subject to fill ~65% of background height, centred
-    subject = Image.open(subject_path).convert("RGBA")
-    target_h = int(bg_h * 0.70)
-    ratio = target_h / subject.height
-    target_w = int(subject.width * ratio)
-    subject = subject.resize((target_w, target_h), Image.LANCZOS)
-
-    # Create oval mask with feathered edge
-    mask = Image.new("L", (target_w, target_h), 0)
-    draw = ImageDraw.Draw(mask)
-    pad = int(min(target_w, target_h) * 0.05)
-    draw.ellipse([pad, pad, target_w - pad, target_h - pad], fill=255)
-    # Feather/blur the mask edge
-    feather = max(int(min(target_w, target_h) * 0.08), 10)
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
-    subject.putalpha(mask)
-
-    # Paste centred onto background
-    paste_x = (bg_w - target_w) // 2
-    paste_y = (bg_h - target_h) // 2
-    composite = background.copy()
-    composite.paste(subject, (paste_x, paste_y), subject)
-
-    # Convert to JPEG bytes
-    out = io.BytesIO()
-    composite.convert("RGB").save(out, format="JPEG", quality=95)
-    logger.info(f"Composite: subject {target_w}x{target_h} centred on {bg_w}x{bg_h} background")
-    return out.getvalue()
-
-
-def generate_custom_portrait(prompt: str, reference_image_url: str, reference_local_path: str = "", strength: float = 0.85) -> bytes:
-    """
-    Two-step composite approach:
-    1. Generate abstract background with Flux Pro (text-to-image)
-    2. Composite the reference pet/person photo centred on the background
-       with a soft feathered oval mask
-
-    This guarantees the abstract background is always visible and the
-    subject is always clearly centred, regardless of model behaviour.
-    """
-    background = _generate_abstract_background(prompt)
-
-    if reference_local_path and Path(reference_local_path).exists():
-        logger.info("Compositing reference photo onto abstract background")
-        return _composite_subject_onto_background(reference_local_path, background)
-
-    # Fallback: download reference from URL and composite
-    logger.info("Downloading reference image for compositing")
-    img_bytes = requests.get(reference_image_url, timeout=60).content
-    tmp = io.BytesIO(img_bytes)
-    subject = Image.open(tmp).convert("RGBA")
-    tmp_subject = io.BytesIO()
-    subject.save(tmp_subject, format="PNG")
-    tmp_subject.seek(0)
-
-    with Path("_tmp_ref.png").open("wb") as f:
-        f.write(tmp_subject.getvalue())
-    result = _composite_subject_onto_background("_tmp_ref.png", background)
-    Path("_tmp_ref.png").unlink(missing_ok=True)
-    return result
+    return img.content
