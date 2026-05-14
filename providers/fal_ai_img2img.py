@@ -123,18 +123,37 @@ def generate_custom_portrait(
         "output_format": "jpeg",
     }
 
-    logger.info("fal.ai inpaint: Submitting job via fal_client.subscribe()")
+    logger.info("fal.ai inpaint: Submitting job")
     start = time.time()
 
-    def _on_update(update):
-        logger.info(f"fal.ai inpaint: {type(update).__name__}")
+    handle = fal_client.submit(FAL_MODEL, arguments=arguments)
+    logger.info(f"fal.ai inpaint: Queued — request_id={handle.request_id}")
 
-    result = fal_client.subscribe(
-        FAL_MODEL,
-        arguments=arguments,
-        with_logs=False,
-        on_queue_update=_on_update,
+    # Poll via fal_client (status polling works fine)
+    # Avoid handle.get() — SDK strips versioned path (/v1.1/fill) from result URL
+    poll_count = 0
+    while True:
+        time.sleep(3)
+        status = handle.status(with_logs=False)
+        status_name = type(status).__name__
+        poll_count += 1
+        logger.info(f"fal.ai inpaint: Poll {poll_count} — {status_name}")
+        if status_name == "Completed":
+            break
+        if status_name in ("Failed", "Error"):
+            raise RuntimeError(f"fal.ai inpaint: Job failed — {status}")
+        if poll_count >= 60:
+            raise TimeoutError("fal.ai inpaint: Timed out after 180s")
+
+    # Fetch result directly with the full versioned URL
+    result_url = f"https://queue.fal.run/{FAL_MODEL}/requests/{handle.request_id}"
+    result_resp = requests.get(
+        result_url,
+        headers={"Authorization": f"Key {api_key}"},
+        timeout=30,
     )
+    result_resp.raise_for_status()
+    result = result_resp.json()
     images = result.get("images", [])
     if not images:
         raise RuntimeError("fal.ai inpaint: No images in response")
