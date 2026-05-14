@@ -32,31 +32,29 @@ def upload_image_to_fal(image_path: str | Path) -> str:
 
 def _make_background_mask(image_path: str | Path) -> bytes:
     """
-    Create an inpainting mask where:
-      WHITE = repaint as abstract (background area)
-      BLACK = keep exactly as-is (subject in center)
+    Create an inpainting mask for fal-ai/flux-pro/v1.1/fill where:
+      BLACK (0)   = repaint as abstract (background area)
+      WHITE (255) = keep exactly as-is (subject in center)
 
-    The subject area is a soft oval covering ~65% of the image height
-    centered in the frame. The feathered edge creates a natural blend
-    between the original subject and the AI-generated abstract background.
+    fal.ai Flux Pro Fill convention: black=fill, white=preserve.
     """
     with Image.open(image_path) as img:
         w, h = img.size
 
-    # Start with all-white mask (repaint everything)
-    mask = Image.new("L", (w, h), 255)
+    # Start with all-black mask (repaint everything)
+    mask = Image.new("L", (w, h), 0)
     draw = ImageDraw.Draw(mask)
 
-    # Draw a black oval in the center (= keep subject)
+    # Draw a white oval in the center (= keep subject)
     subject_w = int(w * 0.72)
     subject_h = int(h * 0.78)
     x0 = (w - subject_w) // 2
     y0 = (h - subject_h) // 2
     x1 = x0 + subject_w
     y1 = y0 + subject_h
-    draw.ellipse([x0, y0, x1, y1], fill=0)
+    draw.ellipse([x0, y0, x1, y1], fill=255)
 
-    # Heavily blur the mask edge so subject blends into the painted background
+    # Blur the mask edge for a natural blend at subject/background boundary
     feather = max(int(min(w, h) * 0.10), 20)
     mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
 
@@ -112,15 +110,11 @@ def generate_custom_portrait(
         f"The subject in the center remains photorealistic and sharp."
     )
 
+    # Minimal payload — optional params may cause silent failures on this model
     arguments = {
         "image_url": reference_image_url,
         "mask_url": mask_url,
         "prompt": abstract_prompt,
-        "num_inference_steps": 28,
-        "guidance_scale": 3.5,
-        "num_images": 1,
-        "enable_safety_checker": True,
-        "output_format": "jpeg",
     }
 
     auth_headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
