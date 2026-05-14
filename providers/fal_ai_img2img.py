@@ -123,30 +123,18 @@ def generate_custom_portrait(
         "output_format": "jpeg",
     }
 
-    logger.info("fal.ai inpaint: Submitting job via fal_client.submit()")
+    logger.info("fal.ai inpaint: Submitting job via fal_client.subscribe()")
     start = time.time()
 
-    handle = fal_client.submit(FAL_MODEL, arguments=arguments)
-    logger.info(f"fal.ai inpaint: Job queued — request_id={handle.request_id}")
+    def _on_update(update):
+        logger.info(f"fal.ai inpaint: {type(update).__name__}")
 
-    # Poll using the handle — fal_client constructs the correct URLs internally
-    poll_count = 0
-    while True:
-        status = handle.status(with_logs=False)
-        status_name = type(status).__name__
-        poll_count += 1
-        logger.info(f"fal.ai inpaint: Poll {poll_count} — {status_name}")
-
-        if status_name == "Completed":
-            break
-        if status_name in ("Failed", "Error"):
-            raise RuntimeError(f"fal.ai inpaint: Job failed — {status}")
-
-        time.sleep(3)
-        if poll_count >= 60:
-            raise TimeoutError("fal.ai inpaint: Timed out after 180s")
-
-    result = handle.get()
+    result = fal_client.subscribe(
+        FAL_MODEL,
+        arguments=arguments,
+        with_logs=False,
+        on_queue_update=_on_update,
+    )
     images = result.get("images", [])
     if not images:
         raise RuntimeError("fal.ai inpaint: No images in response")
