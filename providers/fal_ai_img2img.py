@@ -128,34 +128,54 @@ def generate_custom_portrait(
     logger.info("fal.ai inpaint: Submitting job")
     start = time.time()
 
-    handle = fal_client.submit(FAL_MODEL, arguments=arguments)
-    request_id = handle.request_id
-    logger.info(f"fal.ai inpaint: Queued — request_id={request_id}")
+    submit_resp = requests.post(
+        f"https://queue.fal.run/{FAL_MODEL}",
+        json=arguments,
+        headers=auth_headers,
+        timeout=30,
+    )
+    submit_resp.raise_for_status()
+    job = submit_resp.json()
+    request_id = job["request_id"]
+    status_url = job.get("status_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}/status"
+    response_url = job.get("response_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}"
+    logger.info(f"fal.ai inpaint: request_id={request_id}")
+    logger.info(f"fal.ai inpaint: status_url={status_url}")
+    logger.info(f"fal.ai inpaint: response_url={response_url}")
 
-    # Poll status via fal_client handle (this URL path works correctly)
+    # Poll status; log full body so we can see if result is embedded
+    completed_body = {}
     for poll in range(60):
         time.sleep(3)
-        status = handle.status(with_logs=False)
-        status_name = type(status).__name__
-        logger.info(f"fal.ai inpaint: Poll {poll + 1} — {status_name}")
-        if status_name == "Completed":
+        st = requests.get(status_url, headers=auth_headers, timeout=15)
+        st.raise_for_status()
+        body = st.json()
+        status = body.get("status", "")
+        logger.info(f"fal.ai inpaint: Poll {poll + 1} — status={status} keys={list(body.keys())}")
+        if status == "COMPLETED":
+            completed_body = body
+            logger.info(f"fal.ai inpaint: completed body={body}")
             break
-        if status_name in ("Failed", "Error"):
-            raise RuntimeError(f"fal.ai inpaint: Job failed — {status}")
+        if status in ("FAILED", "ERROR"):
+            raise RuntimeError(f"fal.ai inpaint: Job failed — {body}")
     else:
         raise TimeoutError("fal.ai inpaint: Timed out after 180s")
 
-    # Fetch result — fal_client SDK drops versioned path from result URL.
-    # Try the correct versioned URL directly; 405 on GET means try POST.
-    result_url = f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}"
-    res = requests.get(result_url, headers=auth_headers, timeout=30)
-    logger.info(f"fal.ai inpaint: result GET status={res.status_code}")
-    if res.status_code == 405:
-        res = requests.post(result_url, headers=auth_headers, timeout=30)
-        logger.info(f"fal.ai inpaint: result POST status={res.status_code}")
-    res.raise_for_status()
-    result = res.json()
-    logger.info(f"fal.ai inpaint: result={result}")
+    # Try every plausible result URL pattern and log Allow header on 405
+    result_urls = [
+        response_url,  # what fal.ai told us in submit response
+        f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}",  # versioned path
+        f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}/response",
+    ]
+    result = None
+    for url in result_urls:
+        r = requests.get(url, headers=auth_headers, timeout=30)
+        logger.info(f"fal.ai inpaint: GET {url} → {r.status_code} Allow={r.headers.get('Allow', '-')}")
+        if r.status_code == 200:
+            result = r.json()
+            break
+    if result is None:
+        raise RuntimeError(f"fal.ai inpaint: All result URLs failed. completed_body={completed_body}")
 
     # Handle various response shapes fal.ai may return
     images = result.get("images") or result.get("output", {}).get("images") or []
