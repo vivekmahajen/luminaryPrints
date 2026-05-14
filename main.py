@@ -294,7 +294,11 @@ def run_custom_portrait(
             else:
                 from providers.fal_ai_img2img import upload_image_to_fal, generate_custom_portrait
                 ref_url = upload_image_to_fal(image_path)
-                image_bytes = generate_custom_portrait(enhanced_prompt, ref_url, strength=PORTRAIT_STRENGTH)
+                image_bytes = generate_custom_portrait(
+                    enhanced_prompt, ref_url,
+                    reference_local_path=str(image_path),
+                    strength=PORTRAIT_STRENGTH,
+                )
                 tmp_source.write_bytes(image_bytes)
                 provider, cost = "fal_redux", 0.05
 
