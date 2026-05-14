@@ -3,15 +3,16 @@ import os
 import time
 import requests
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 from utils.config import get_env
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+FAL_IMG2IMG_MODEL = "fal-ai/flux/dev/image-to-image"
 FAL_TEXT2IMG_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1"
 POLL_INTERVAL = 3
-MAX_POLLS = 60
+MAX_POLLS = 80
 
 
 def upload_image_to_fal(image_path: str | Path) -> str:
@@ -31,108 +32,23 @@ def upload_image_to_fal(image_path: str | Path) -> str:
     return url
 
 
-def _generate_abstract_background(prompt: str, width: int, height: int) -> Image.Image:
-    """
-    Generate a pure abstract painting background using fal-ai/flux-pro/v1.1
-    (the same proven-working text-to-image endpoint used by the daily pipeline).
-    """
-    api_key = get_env("FAL_API_KEY")
-    headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
-
-    # Choose the closest fal.ai portrait size
-    if height > width:
-        image_size = "portrait_4_3"
-    else:
-        image_size = "landscape_4_3"
-
-    bg_prompt = (
-        f"Abstract oil painting for a 3D pop-out art print. {prompt} "
-        f"Bold impasto brushstrokes, thick palette knife marks, rich saturated colour fields, "
-        f"dramatic painterly texture. No people, no animals, no faces. Pure abstract art only."
-    )
-
-    payload = {
-        "prompt": bg_prompt,
-        "image_size": image_size,
-        "num_inference_steps": 28,
-        "guidance_scale": 3.5,
-        "num_images": 1,
-        "enable_safety_checker": True,
-        "output_format": "jpeg",
-    }
-
-    logger.info("fal.ai: Generating abstract background")
-    resp = requests.post(FAL_TEXT2IMG_URL, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
-    job = resp.json()
-    request_id = job.get("request_id")
-    status_url = job.get("status_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}/status"
-    result_url = job.get("response_url") or f"https://queue.fal.run/fal-ai/flux-pro/requests/{request_id}"
-    logger.info(f"fal.ai: Background job submitted, request_id={request_id}")
-
+def _poll_job(status_url: str, result_url: str, headers: dict, label: str) -> dict:
+    """Poll a fal.ai queue job until COMPLETED, return result JSON."""
     for poll in range(MAX_POLLS):
         time.sleep(POLL_INTERVAL)
         st = requests.get(status_url, headers=headers, timeout=15)
         st.raise_for_status()
-        status = st.json().get("status", "")
-        logger.info(f"fal.ai bg: Poll {poll + 1} — {status}")
+        body = st.json()
+        status = body.get("status", "")
+        inference = body.get("metrics", {}).get("inference_time", 0)
+        logger.info(f"fal.ai {label}: Poll {poll + 1} — {status} ({inference:.1f}s)")
         if status == "COMPLETED":
-            result = requests.get(result_url, headers=headers, timeout=30).json()
-            image_url = result["images"][0]["url"]
-            img_bytes = requests.get(image_url, timeout=60).content
-            bg = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            logger.info(f"fal.ai bg: Generated {bg.width}x{bg.height}")
-            return bg
+            result = requests.get(result_url, headers=headers, timeout=30)
+            result.raise_for_status()
+            return result.json()
         if status in ("FAILED", "ERROR"):
-            raise RuntimeError("fal.ai: Background generation failed")
-
-    raise TimeoutError("fal.ai: Background generation timed out")
-
-
-def _composite_3d_popout(reference_path: str | Path, background: Image.Image) -> bytes:
-    """
-    3D pop-out effect: the abstract painting acts as a canvas frame
-    and the subject BREAKS THROUGH it from behind, face-first.
-
-    Layering (back to front):
-      1. Pet photo scaled to fill the full frame
-      2. Abstract painting laid ON TOP with an oval window cut out
-         — abstract covers the body/edges, face bursts through the hole
-      3. A soft vignette around the window edge deepens the 3D illusion
-
-    The oval window is shifted upward so the face/head is the focal
-    point pushing through the painting surface.
-    """
-    bg_w, bg_h = background.size
-
-    # Scale pet to fill the full frame (abstract covers the edges)
-    with Image.open(reference_path) as ref:
-        pet = ref.convert("RGB").resize((bg_w, bg_h), Image.LANCZOS)
-
-    # Window mask: WHITE = pet visible (breaks through), BLACK = abstract covers
-    # Oval shifted up ~10% so face/head is centred in the window
-    win_mask = Image.new("L", (bg_w, bg_h), 0)
-    draw = ImageDraw.Draw(win_mask)
-    win_w = int(bg_w * 0.52)          # window is 52% of frame width
-    win_h = int(bg_h * 0.56)          # window is 56% of frame height
-    wx = (bg_w - win_w) // 2
-    wy = int(bg_h * 0.10)             # shifted up — face is in top-centre
-    draw.ellipse([wx, wy, wx + win_w, wy + win_h], fill=255)
-
-    # Feather the window: soft transition between pet and abstract
-    feather = max(int(min(bg_w, bg_h) * 0.13), 25)
-    win_mask = win_mask.filter(ImageFilter.GaussianBlur(radius=feather))
-
-    # Composite: where win_mask=255 → pet, where win_mask=0 → abstract
-    canvas = Image.composite(pet, background, win_mask)
-
-    out = io.BytesIO()
-    canvas.convert("RGB").save(out, format="JPEG", quality=95)
-    logger.info(
-        f"3D pop-out: pet {bg_w}x{bg_h}, window {win_w}x{win_h} "
-        f"at ({wx},{wy}), feather={feather}px"
-    )
-    return out.getvalue()
+            raise RuntimeError(f"fal.ai {label}: Job failed — {body}")
+    raise TimeoutError(f"fal.ai {label}: Timed out after {MAX_POLLS * POLL_INTERVAL}s")
 
 
 def generate_custom_portrait(
@@ -142,41 +58,90 @@ def generate_custom_portrait(
     strength: float = 0.85,
 ) -> bytes:
     """
-    Two-step approach (100% reliable — no broken inpainting endpoints):
+    Image-to-image portrait transformation:
 
-    1. Generate a bold abstract background with fal-ai/flux-pro/v1.1
-       (the same proven endpoint used by the daily print pipeline)
-    2. Composite the reference photo onto the background using a wide
-       Gaussian-feathered radial mask so the subject blends naturally
-       into the painted background — photorealistic subject, abstract surround
+    Submits the reference photo to fal-ai/flux/dev/image-to-image at
+    strength=0.75. The model keeps the pet's structure and pose but
+    renders the entire image — pet AND background — in an abstract
+    painterly style. The result looks like an abstract painting where
+    the pet's form emerges from the brushstrokes, not a photo pasted
+    on a background.
 
-    The wide feather (22% of frame) prevents the "cutout" look.
+    Prompt focuses on the abstract/painterly treatment so the AI
+    applies that style throughout the image rather than just the edges.
     """
-    local_path = reference_local_path if reference_local_path else None
+    api_key = get_env("FAL_API_KEY")
+    headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
+    os.environ["FAL_KEY"] = api_key
+    import fal_client
 
+    # Ensure we have a local copy for upload
+    local_path = reference_local_path if reference_local_path else None
     if not local_path or not Path(local_path).exists():
         logger.info("Downloading reference image")
         img_bytes = requests.get(reference_image_url, timeout=60).content
         local_path = "_tmp_portrait_ref.jpg"
         Path(local_path).write_bytes(img_bytes)
 
-    # Read reference dimensions to size the background correctly
-    with Image.open(local_path) as ref:
-        ref_w, ref_h = ref.size
+    # Upload reference photo to fal.ai storage
+    ref_url = fal_client.upload_file(str(local_path))
+    logger.info(f"Reference uploaded — {ref_url}")
 
-    logger.info(f"Reference image: {ref_w}x{ref_h}")
+    # Prompt: style guides the transformation of the whole image
+    styled_prompt = (
+        f"{prompt} "
+        f"Abstract expressionist oil painting. The entire image is rendered as bold "
+        f"impasto brushstrokes and thick palette knife marks. The pet's face and body "
+        f"emerge dramatically from swirling abstract colour fields — the painterly "
+        f"strokes define the fur, eyes and form. Rich saturated colours. "
+        f"The pet appears to push forward from the canvas in 3D. "
+        f"Museum quality fine art print, 300 DPI."
+    )
 
-    # Step 1: Generate abstract background
-    background = _generate_abstract_background(prompt, ref_w, ref_h)
+    payload = {
+        "image_url": ref_url,
+        "prompt": styled_prompt,
+        "strength": 0.75,
+        "num_inference_steps": 28,
+        "guidance_scale": 3.5,
+        "num_images": 1,
+        "enable_safety_checker": True,
+        "output_format": "jpeg",
+    }
 
-    # Resize background to match reference dimensions for clean compositing
-    background = background.resize((ref_w, ref_h), Image.LANCZOS)
+    logger.info("fal.ai img2img: Submitting job")
+    start = time.time()
+    resp = requests.post(
+        f"https://queue.fal.run/{FAL_IMG2IMG_MODEL}",
+        json=payload,
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    job = resp.json()
+    request_id = job["request_id"]
+    # fal-ai/flux app_id → result URL uses fal-ai/flux (without /dev/image-to-image)
+    status_url = job.get("status_url") or f"https://queue.fal.run/fal-ai/flux/requests/{request_id}/status"
+    result_url = job.get("response_url") or f"https://queue.fal.run/fal-ai/flux/requests/{request_id}"
+    logger.info(f"fal.ai img2img: request_id={request_id}")
+    logger.info(f"fal.ai img2img: status_url={status_url}")
+    logger.info(f"fal.ai img2img: result_url={result_url}")
 
-    # Step 2: 3D pop-out composite — abstract on top, pet breaks through
-    result_bytes = _composite_3d_popout(local_path, background)
+    result = _poll_job(status_url, result_url, headers, "img2img")
+
+    images = result.get("images") or []
+    if not images:
+        raise RuntimeError(f"fal.ai img2img: No images in response: {result}")
+
+    image_url = images[0].get("url") if isinstance(images[0], dict) else images[0]
+    logger.info(f"fal.ai img2img: Downloading result from {image_url}")
+    img = requests.get(image_url, timeout=60)
+    img.raise_for_status()
+
+    elapsed = time.time() - start
+    logger.info(f"fal.ai img2img: Done in {elapsed:.1f}s, {len(img.content) // 1024} KB")
 
     if reference_local_path == "" and Path("_tmp_portrait_ref.jpg").exists():
         Path("_tmp_portrait_ref.jpg").unlink(missing_ok=True)
 
-    logger.info(f"Custom portrait complete: {len(result_bytes) // 1024} KB")
-    return result_bytes
+    return img.content
