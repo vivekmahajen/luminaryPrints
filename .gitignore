@@ -1,5 +1,7 @@
 .env
 pipeline.db
+state.json
+output/index.md
 output/*/
 output/*.jpg
 output/*.png
