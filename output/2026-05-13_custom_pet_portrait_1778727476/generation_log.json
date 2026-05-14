@@ -1,0 +1,25 @@
+{
+  "date": "2026-05-13",
+  "style": "Custom Pet Portrait",
+  "variation": "Soft blush and rose palette knife abstract background, gentle diffused light",
+  "prompt_raw": "Custom Pet Portrait \u2014 Soft blush and rose palette knife abstract background, gentle diffused light",
+  "prompt_enhanced": "Hyperrealistic 3D portrait of the pet from the reference photo, centered and emerging from the canvas with striking depth and dimension, rendered with meticulous fur texture, soulful expressive eyes, and luminous coat detail that physically lifts from the surface. The background features a soft blush and rose abstract painting with sweeping palette knife strokes, delicate layered pinks, dusty rose tones, and creamy ivory impasto marks creating a romantic, textured dreamscape behind the subject. Gentle diffused light wraps softly around the pet's face and body, illuminating fine fur details and casting subtle dimensional shadows that amplify the breathtaking pop-out effect. The pet occupies the central canvas, fully visible from face to mid-body with captivating presence. Ultra high resolution, 300 DPI print quality, museum quality fine art, photorealistic subject against painterly abstract background.",
+  "image_provider": "fal_redux",
+  "image_url_original": "",
+  "source_image_size_kb": 5768.3,
+  "source_image_dimensions": "6240x4160",
+  "sizes_generated": [
+    "5x7",
+    "8x10",
+    "11x14",
+    "16x20",
+    "18x24",
+    "24x36",
+    "A4",
+    "A3"
+  ],
+  "generation_time_seconds": 13.06,
+  "total_pipeline_time_seconds": 31.57,
+  "estimated_cost_usd": 0.05,
+  "status": "success"
+}
