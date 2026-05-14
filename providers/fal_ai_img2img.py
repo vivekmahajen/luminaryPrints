@@ -125,19 +125,37 @@ def generate_custom_portrait(
 
     auth_headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
 
-    # Use synchronous endpoint — returns result directly, no queue polling needed.
-    # The async queue endpoint (queue.fal.run) has broken result URLs for versioned
-    # model paths like /v1.1/fill; the sync endpoint avoids that entirely.
-    logger.info("fal.ai inpaint: Calling synchronous endpoint (may take 30-90s)")
+    logger.info("fal.ai inpaint: Submitting job")
     start = time.time()
-    result_resp = requests.post(
-        f"https://fal.run/{FAL_MODEL}",
-        json=arguments,
-        headers=auth_headers,
-        timeout=180,
-    )
-    result_resp.raise_for_status()
-    result = result_resp.json()
+
+    handle = fal_client.submit(FAL_MODEL, arguments=arguments)
+    request_id = handle.request_id
+    logger.info(f"fal.ai inpaint: Queued — request_id={request_id}")
+
+    # Poll status via fal_client handle (this URL path works correctly)
+    for poll in range(60):
+        time.sleep(3)
+        status = handle.status(with_logs=False)
+        status_name = type(status).__name__
+        logger.info(f"fal.ai inpaint: Poll {poll + 1} — {status_name}")
+        if status_name == "Completed":
+            break
+        if status_name in ("Failed", "Error"):
+            raise RuntimeError(f"fal.ai inpaint: Job failed — {status}")
+    else:
+        raise TimeoutError("fal.ai inpaint: Timed out after 180s")
+
+    # Fetch result — fal_client SDK drops versioned path from result URL.
+    # Try the correct versioned URL directly; 405 on GET means try POST.
+    result_url = f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}"
+    res = requests.get(result_url, headers=auth_headers, timeout=30)
+    logger.info(f"fal.ai inpaint: result GET status={res.status_code}")
+    if res.status_code == 405:
+        res = requests.post(result_url, headers=auth_headers, timeout=30)
+        logger.info(f"fal.ai inpaint: result POST status={res.status_code}")
+    res.raise_for_status()
+    result = res.json()
+    logger.info(f"fal.ai inpaint: result keys={list(result.keys())}")
     images = result.get("images", [])
     if not images:
         raise RuntimeError("fal.ai inpaint: No images in response")
