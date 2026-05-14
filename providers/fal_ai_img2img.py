@@ -125,49 +125,19 @@ def generate_custom_portrait(
 
     auth_headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
 
-    logger.info("fal.ai inpaint: Submitting job")
+    # Use synchronous endpoint — returns result directly, no queue polling needed.
+    # The async queue endpoint (queue.fal.run) has broken result URLs for versioned
+    # model paths like /v1.1/fill; the sync endpoint avoids that entirely.
+    logger.info("fal.ai inpaint: Calling synchronous endpoint (may take 30-90s)")
     start = time.time()
-    submit_resp = requests.post(
-        f"https://queue.fal.run/{FAL_MODEL}",
+    result_resp = requests.post(
+        f"https://fal.run/{FAL_MODEL}",
         json=arguments,
         headers=auth_headers,
-        timeout=30,
+        timeout=180,
     )
-    submit_resp.raise_for_status()
-    job = submit_resp.json()
-    logger.info(f"fal.ai inpaint: Submit response keys: {list(job.keys())}")
-
-    request_id = job["request_id"]
-    # Use URLs exactly as fal.ai returns them — don't construct our own
-    status_url = job.get("status_url") or job.get("queue_url") or f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}/status"
-    response_url = job.get("response_url") or f"https://queue.fal.run/{FAL_MODEL}/requests/{request_id}"
-    logger.info(f"fal.ai inpaint: request_id={request_id}")
-    logger.info(f"fal.ai inpaint: status_url={status_url}")
-    logger.info(f"fal.ai inpaint: response_url={response_url}")
-
-    # Poll status
-    for poll in range(60):
-        time.sleep(3)
-        st_resp = requests.get(status_url, headers=auth_headers, timeout=15)
-        if st_resp.status_code == 405:
-            # Some fal.ai models return status via POST
-            st_resp = requests.post(status_url, headers=auth_headers, timeout=15)
-        st_resp.raise_for_status()
-        status = st_resp.json().get("status", "")
-        logger.info(f"fal.ai inpaint: Poll {poll + 1} — {status}")
-        if status == "COMPLETED":
-            break
-        if status in ("FAILED", "ERROR"):
-            raise RuntimeError(f"fal.ai inpaint: Job failed — status={status}")
-    else:
-        raise TimeoutError("fal.ai inpaint: Timed out after 180s")
-
-    # Fetch result
-    res_resp = requests.get(response_url, headers=auth_headers, timeout=30)
-    if res_resp.status_code == 405:
-        res_resp = requests.post(response_url, headers=auth_headers, timeout=30)
-    res_resp.raise_for_status()
-    result = res_resp.json()
+    result_resp.raise_for_status()
+    result = result_resp.json()
     images = result.get("images", [])
     if not images:
         raise RuntimeError("fal.ai inpaint: No images in response")
