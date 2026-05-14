@@ -3,7 +3,7 @@ import os
 import time
 import requests
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter
 from utils.config import get_env
 from utils.logger import get_logger
 
@@ -89,88 +89,48 @@ def _generate_abstract_background(prompt: str, width: int, height: int) -> Image
     raise TimeoutError("fal.ai: Background generation timed out")
 
 
-def _sample_border_color(img: Image.Image) -> tuple[int, int, int]:
-    """Sample the average colour from the border strip of an image."""
-    w, h = img.size
-    border = 40
-    strips = [
-        img.crop((0, 0, w, border)),
-        img.crop((0, h - border, w, h)),
-        img.crop((0, 0, border, h)),
-        img.crop((w - border, 0, w, h)),
-    ]
-    r = g = b = count = 0
-    for strip in strips:
-        small = strip.resize((8, 8), Image.LANCZOS).convert("RGB")
-        for px in small.getdata():
-            r += px[0]; g += px[1]; b += px[2]; count += 1
-    return (r // count, g // count, b // count)
-
-
-def _composite_portrait(reference_path: str | Path, background: Image.Image) -> bytes:
+def _composite_3d_popout(reference_path: str | Path, background: Image.Image) -> bytes:
     """
-    Composite the reference photo onto the abstract background.
+    3D pop-out effect: the abstract painting acts as a canvas frame
+    and the subject BREAKS THROUGH it from behind, face-first.
 
-    Subject occupies 68% of the frame so the abstract background is
-    clearly visible around it. A 25% Gaussian-feathered oval mask gives
-    a very gradual edge. A colour wash sampled from the background is
-    blended into the subject's edge zone so the colours integrate rather
-    than look like a hard paste.
+    Layering (back to front):
+      1. Pet photo scaled to fill the full frame
+      2. Abstract painting laid ON TOP with an oval window cut out
+         — abstract covers the body/edges, face bursts through the hole
+      3. A soft vignette around the window edge deepens the 3D illusion
+
+    The oval window is shifted upward so the face/head is the focal
+    point pushing through the painting surface.
     """
     bg_w, bg_h = background.size
 
-    # Scale subject to 68% of frame — leaves plenty of background visible
+    # Scale pet to fill the full frame (abstract covers the edges)
     with Image.open(reference_path) as ref:
-        ref = ref.convert("RGB")
-    scale = min(bg_w / ref.width, bg_h / ref.height) * 0.68
-    new_w = int(ref.width * scale)
-    new_h = int(ref.height * scale)
-    ref = ref.resize((new_w, new_h), Image.LANCZOS)
+        pet = ref.convert("RGB").resize((bg_w, bg_h), Image.LANCZOS)
 
-    paste_x = (bg_w - new_w) // 2
-    paste_y = (bg_h - new_h) // 2
+    # Window mask: WHITE = pet visible (breaks through), BLACK = abstract covers
+    # Oval shifted up ~10% so face/head is centred in the window
+    win_mask = Image.new("L", (bg_w, bg_h), 0)
+    draw = ImageDraw.Draw(win_mask)
+    win_w = int(bg_w * 0.52)          # window is 52% of frame width
+    win_h = int(bg_h * 0.56)          # window is 56% of frame height
+    wx = (bg_w - win_w) // 2
+    wy = int(bg_h * 0.10)             # shifted up — face is in top-centre
+    draw.ellipse([wx, wy, wx + win_w, wy + win_h], fill=255)
 
-    # --- Build the main alpha mask (white centre, black edges) ---
-    mask = Image.new("L", (new_w, new_h), 0)
-    draw = ImageDraw.Draw(mask)
-    inner_w = int(new_w * 0.68)
-    inner_h = int(new_h * 0.80)
-    ix = (new_w - inner_w) // 2
-    iy = (new_h - inner_h) // 2
-    draw.ellipse([ix, iy, ix + inner_w, iy + inner_h], fill=255)
-    feather = max(int(min(new_w, new_h) * 0.25), 30)
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
+    # Feather the window: soft transition between pet and abstract
+    feather = max(int(min(bg_w, bg_h) * 0.13), 25)
+    win_mask = win_mask.filter(ImageFilter.GaussianBlur(radius=feather))
 
-    # --- Colour-wash: bleed background palette into the subject edges ---
-    bg_color = _sample_border_color(background)
-    color_wash = Image.new("RGB", (new_w, new_h), bg_color)
-
-    # Edge-wash mask: strong where the alpha is low (edges), absent at centre
-    wash_mask = Image.new("L", (new_w, new_h), 0)
-    draw2 = ImageDraw.Draw(wash_mask)
-    draw2.ellipse([ix, iy, ix + inner_w, iy + inner_h], fill=255)
-    wash_mask = wash_mask.filter(ImageFilter.GaussianBlur(radius=feather))
-    # Invert and soften: 0 = centre (no wash), 180 = edges (strong wash)
-    wash_mask = wash_mask.point(lambda p: max(0, 180 - int(p * 0.85)))
-
-    ref_rgba = ref.copy().convert("RGBA")
-    wash_rgba = color_wash.convert("RGBA")
-    wash_rgba.putalpha(wash_mask)
-    # Blend colour wash onto subject
-    ref_with_wash = Image.alpha_composite(ref_rgba, wash_rgba).convert("RGB")
-
-    # --- Final composite onto background ---
-    ref_final = ref_with_wash.convert("RGBA")
-    ref_final.putalpha(mask)
-
-    canvas = background.copy().convert("RGBA")
-    canvas.paste(ref_final, (paste_x, paste_y), ref_final)
+    # Composite: where win_mask=255 → pet, where win_mask=0 → abstract
+    canvas = Image.composite(pet, background, win_mask)
 
     out = io.BytesIO()
     canvas.convert("RGB").save(out, format="JPEG", quality=95)
     logger.info(
-        f"Composite: subject {new_w}x{new_h} at ({paste_x},{paste_y}) "
-        f"on {bg_w}x{bg_h}, feather={feather}px, wash_colour={bg_color}"
+        f"3D pop-out: pet {bg_w}x{bg_h}, window {win_w}x{win_h} "
+        f"at ({wx},{wy}), feather={feather}px"
     )
     return out.getvalue()
 
@@ -212,8 +172,8 @@ def generate_custom_portrait(
     # Resize background to match reference dimensions for clean compositing
     background = background.resize((ref_w, ref_h), Image.LANCZOS)
 
-    # Step 2: Composite subject onto background
-    result_bytes = _composite_portrait(local_path, background)
+    # Step 2: 3D pop-out composite — abstract on top, pet breaks through
+    result_bytes = _composite_3d_popout(local_path, background)
 
     if reference_local_path == "" and Path("_tmp_portrait_ref.jpg").exists():
         Path("_tmp_portrait_ref.jpg").unlink(missing_ok=True)
