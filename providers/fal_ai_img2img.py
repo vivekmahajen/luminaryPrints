@@ -38,63 +38,42 @@ def upload_image_to_fal(image_path: str | Path) -> str:
 
 def generate_custom_portrait(prompt: str, reference_image_url: str, strength: float = 0.85) -> bytes:
     """
-    Generate an image using fal.ai Flux Dev image-to-image.
-
-    This model reads BOTH the reference image (subject structure/position)
-    AND the prompt (abstract background style), unlike Redux which ignores
-    the prompt. strength=0.85 applies strong artistic transformation while
-    keeping the subject's shape and position from the reference photo.
+    Generate using fal.ai Flux Dev image-to-image via fal_client.subscribe().
+    The client handles all queuing and polling internally.
+    strength=0.85: strong artistic transformation (abstract background)
+    while preserving subject structure from the reference photo.
     """
     api_key = get_env("FAL_API_KEY")
-    headers = {
-        "Authorization": f"Key {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "image_url": reference_image_url,
-        "prompt": prompt,
-        "strength": strength,
-        "num_inference_steps": 28,
-        "guidance_scale": 3.5,
-        "num_images": 1,
-        "enable_safety_checker": True,
-        "output_format": "jpeg",
-        "sync_mode": False,
-    }
+    os.environ["FAL_KEY"] = api_key
 
-    logger.info(f"fal.ai img2img: Submitting request (strength={strength})")
+    import fal_client
+
+    logger.info(f"fal.ai img2img: Submitting Flux Dev img2img request (strength={strength})")
     start = time.time()
 
-    resp = requests.post(FAL_IMG2IMG_URL, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
-    job = resp.json()
-    request_id = job.get("request_id")
-    status_url = f"https://queue.fal.run/fal-ai/flux/dev/requests/{request_id}/status"
-    result_url = f"https://queue.fal.run/fal-ai/flux/dev/requests/{request_id}"
+    result = fal_client.subscribe(
+        "fal-ai/flux/dev/image-to-image",
+        arguments={
+            "image_url": reference_image_url,
+            "prompt": prompt,
+            "strength": strength,
+            "num_inference_steps": 28,
+            "guidance_scale": 3.5,
+            "num_images": 1,
+            "enable_safety_checker": True,
+            "output_format": "jpeg",
+        },
+    )
 
-    logger.info(f"fal.ai img2img: Job submitted, request_id={request_id}")
+    images = result.get("images", [])
+    if not images:
+        raise RuntimeError("fal.ai img2img: No images in response")
 
-    for poll in range(MAX_POLLS):
-        time.sleep(POLL_INTERVAL)
-        status_resp = requests.get(status_url, headers=headers, timeout=15)
-        status_resp.raise_for_status()
-        status = status_resp.json().get("status", "")
-        logger.info(f"fal.ai img2img: Poll {poll + 1}/{MAX_POLLS} — status={status}")
+    image_url = images[0].get("url")
+    logger.info(f"fal.ai img2img: Downloading from {image_url}")
+    img = requests.get(image_url, timeout=60)
+    img.raise_for_status()
 
-        if status == "COMPLETED":
-            result = requests.get(result_url, headers=headers, timeout=30).json()
-            images = result.get("images", [])
-            if not images:
-                raise RuntimeError("fal.ai img2img: No images in response")
-            image_url = images[0].get("url")
-            logger.info(f"fal.ai img2img: Downloading from {image_url}")
-            img = requests.get(image_url, timeout=60)
-            img.raise_for_status()
-            elapsed = time.time() - start
-            logger.info(f"fal.ai img2img: Done in {elapsed:.1f}s, {len(img.content) / 1024:.1f} KB")
-            return img.content
-
-        if status in ("FAILED", "ERROR"):
-            raise RuntimeError(f"fal.ai img2img: Job failed — status={status}")
-
-    raise TimeoutError(f"fal.ai img2img: Timed out after {MAX_POLLS * POLL_INTERVAL}s")
+    elapsed = time.time() - start
+    logger.info(f"fal.ai img2img: Done in {elapsed:.1f}s, {len(img.content) / 1024:.1f} KB")
+    return img.content
