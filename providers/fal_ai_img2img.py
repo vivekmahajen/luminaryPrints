@@ -155,12 +155,18 @@ def generate_custom_portrait(
         logger.info(f"fal.ai inpaint: result POST status={res.status_code}")
     res.raise_for_status()
     result = res.json()
-    logger.info(f"fal.ai inpaint: result keys={list(result.keys())}")
-    images = result.get("images", [])
-    if not images:
-        raise RuntimeError("fal.ai inpaint: No images in response")
+    logger.info(f"fal.ai inpaint: result={result}")
 
-    image_url = images[0].get("url")
+    # Handle various response shapes fal.ai may return
+    images = result.get("images") or result.get("output", {}).get("images") or []
+    if images:
+        image_url = images[0].get("url") if isinstance(images[0], dict) else images[0]
+    elif result.get("image"):
+        image_url = result["image"].get("url") if isinstance(result["image"], dict) else result["image"]
+    elif result.get("url"):
+        image_url = result["url"]
+    else:
+        raise RuntimeError(f"fal.ai inpaint: No image URL in response: {result}")
     logger.info(f"fal.ai inpaint: Downloading result from {image_url}")
     img = requests.get(image_url, timeout=60)
     img.raise_for_status()
