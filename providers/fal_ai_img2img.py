@@ -9,9 +9,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-FAL_INPAINT_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1/fill"
-POLL_INTERVAL = 3
-MAX_POLLS = 60
+FAL_MODEL = "fal-ai/flux-pro/v1.1/fill"
 
 
 def upload_image_to_fal(image_path: str | Path) -> str:
@@ -68,25 +66,6 @@ def _make_background_mask(image_path: str | Path) -> bytes:
     return buf.getvalue()
 
 
-def _poll_fal_job(request_id: str, model_path: str, headers: dict) -> dict:
-    status_url = f"https://queue.fal.run/{model_path}/requests/{request_id}/status"
-    result_url = f"https://queue.fal.run/{model_path}/requests/{request_id}"
-
-    for poll in range(MAX_POLLS):
-        time.sleep(POLL_INTERVAL)
-        status_resp = requests.get(status_url, headers=headers, timeout=15)
-        status_resp.raise_for_status()
-        status = status_resp.json().get("status", "")
-        logger.info(f"fal.ai: Poll {poll + 1}/{MAX_POLLS} — {status}")
-
-        if status == "COMPLETED":
-            return requests.get(result_url, headers=headers, timeout=30).json()
-        if status in ("FAILED", "ERROR"):
-            raise RuntimeError(f"fal.ai: Job failed — status={status}")
-
-    raise TimeoutError(f"fal.ai: Timed out after {MAX_POLLS * POLL_INTERVAL}s")
-
-
 def generate_custom_portrait(
     prompt: str,
     reference_image_url: str,
@@ -99,14 +78,15 @@ def generate_custom_portrait(
     1. Create a mask: WHITE = background (repaint as abstract),
                       BLACK = subject center (keep original photo)
     2. Send image + mask + abstract prompt to Flux Pro Fill (inpainting)
+       via fal_client.subscribe() which handles queue polling correctly
     3. Flux repaints only the background as abstract art while
        preserving the subject pixel-perfect from the original photo
 
     Result: natural seamless blend — no cutout look, no compositing artifacts.
-    The subject looks like part of the painting, not pasted on top.
     """
     api_key = get_env("FAL_API_KEY")
-    headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
+    os.environ["FAL_KEY"] = api_key
+    import fal_client
 
     local_path = reference_local_path if reference_local_path else None
 
@@ -119,8 +99,6 @@ def generate_custom_portrait(
     # Build and upload the mask
     logger.info("Creating background mask")
     mask_bytes = _make_background_mask(local_path)
-    os.environ["FAL_KEY"] = api_key
-    import fal_client
     mask_tmp = "_tmp_portrait_mask.png"
     Path(mask_tmp).write_bytes(mask_bytes)
     mask_url = fal_client.upload_file(mask_tmp)
@@ -134,7 +112,7 @@ def generate_custom_portrait(
         f"The subject in the center remains photorealistic and sharp."
     )
 
-    payload = {
+    arguments = {
         "image_url": reference_image_url,
         "mask_url": mask_url,
         "prompt": abstract_prompt,
@@ -145,15 +123,30 @@ def generate_custom_portrait(
         "output_format": "jpeg",
     }
 
-    logger.info("fal.ai inpaint: Submitting background repaint request")
+    logger.info("fal.ai inpaint: Submitting job via fal_client.submit()")
     start = time.time()
-    resp = requests.post(FAL_INPAINT_URL, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
-    job = resp.json()
-    request_id = job.get("request_id")
-    logger.info(f"fal.ai inpaint: Job submitted, request_id={request_id}")
 
-    result = _poll_fal_job(request_id, "fal-ai/flux-pro/v1.1/fill", headers)
+    handle = fal_client.submit(FAL_MODEL, arguments=arguments)
+    logger.info(f"fal.ai inpaint: Job queued — request_id={handle.request_id}")
+
+    # Poll using the handle — fal_client constructs the correct URLs internally
+    poll_count = 0
+    while True:
+        status = handle.status(with_logs=False)
+        status_name = type(status).__name__
+        poll_count += 1
+        logger.info(f"fal.ai inpaint: Poll {poll_count} — {status_name}")
+
+        if status_name == "Completed":
+            break
+        if status_name in ("Failed", "Error"):
+            raise RuntimeError(f"fal.ai inpaint: Job failed — {status}")
+
+        time.sleep(3)
+        if poll_count >= 60:
+            raise TimeoutError("fal.ai inpaint: Timed out after 180s")
+
+    result = handle.get()
     images = result.get("images", [])
     if not images:
         raise RuntimeError("fal.ai inpaint: No images in response")
