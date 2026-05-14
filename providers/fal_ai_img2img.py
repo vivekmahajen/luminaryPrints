@@ -3,7 +3,7 @@ import os
 import time
 import requests
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageEnhance
 from utils.config import get_env
 from utils.logger import get_logger
 
@@ -80,43 +80,29 @@ def _generate_abstract_background(prompt: str, width: int, height: int) -> Image
 
 def _abstract_overlay_portrait(reference_path: str | Path, abstract: Image.Image) -> bytes:
     """
-    Blend the abstract painting ON TOP of the pet photo.
+    Blanket-relief effect: abstract painting is the visible surface; the pet's
+    face pushes through from behind creating a 3D protrusion.
 
-    The abstract defines the colours and texture; the pet's face and
-    body are visible through it — like paint applied over a photograph.
-
-    Blend profile:
-      - Edges/background: abstract at 90% (strong abstract)
-      - Mid zone:         abstract at 72%
-      - Face centre:      abstract at 50% (face clearly visible through paint)
-
-    This creates the "abstract shaped by the animal" look where the
-    brushstrokes define the form rather than a photo sitting on a background.
+    Technique — overlay blend mode (pet=base, abstract=texture):
+      - Where pet is bright (face highlights): abstract lightens → raised surface
+      - Where pet is dark (fur/background): abstract darkens → recessed shadow
+      - Abstract colours/brushstrokes remain dominant everywhere
+      - Result: you see the abstract blanket, but the face shape protrudes through it
     """
     with Image.open(reference_path) as ref:
         pet = ref.convert("RGB").resize(abstract.size, Image.LANCZOS)
 
-    w, h = pet.size
+    # Boost pet contrast so bright/dark areas drive a stronger 3D relief
+    pet_contrast = ImageEnhance.Contrast(pet).enhance(1.6)
 
-    # Radial vignette: white=face centre (more pet), black=edges (more abstract)
-    vignette = Image.new("L", (w, h), 0)
-    draw = ImageDraw.Draw(vignette)
-    cx, cy = int(w * 0.50), int(h * 0.38)   # slightly above centre — face area
-    oval_w, oval_h = int(w * 0.55), int(h * 0.50)
-    draw.ellipse([cx - oval_w//2, cy - oval_h//2, cx + oval_w//2, cy + oval_h//2], fill=255)
-    blur_r = max(int(min(w, h) * 0.30), 40)
-    vignette = vignette.filter(ImageFilter.GaussianBlur(radius=blur_r))
+    # Overlay blend: abstract is the dominant "blanket" texture,
+    # pet's luminosity creates the 3D relief (bright=raised, dark=recessed)
+    result = ImageChops.overlay(abstract, pet_contrast)
 
-    # Two blend levels
-    face_blend  = Image.blend(pet, abstract, alpha=0.50)  # 50% abstract, face visible
-    outer_blend = Image.blend(pet, abstract, alpha=0.90)  # 90% abstract, heavily painted
-
-    # Composite: where vignette=255 → face_blend; where vignette=0 → outer_blend
-    result = Image.composite(face_blend, outer_blend, vignette)
-
+    w, h = result.size
     out = io.BytesIO()
     result.convert("RGB").save(out, format="JPEG", quality=95)
-    logger.info(f"Abstract overlay: {w}x{h}, face at ({cx},{cy}), blur={blur_r}px")
+    logger.info(f"Blanket-relief portrait: {w}x{h}")
     return out.getvalue()
 
 
