@@ -89,59 +89,88 @@ def _generate_abstract_background(prompt: str, width: int, height: int) -> Image
     raise TimeoutError("fal.ai: Background generation timed out")
 
 
+def _sample_border_color(img: Image.Image) -> tuple[int, int, int]:
+    """Sample the average colour from the border strip of an image."""
+    w, h = img.size
+    border = 40
+    strips = [
+        img.crop((0, 0, w, border)),
+        img.crop((0, h - border, w, h)),
+        img.crop((0, 0, border, h)),
+        img.crop((w - border, 0, w, h)),
+    ]
+    r = g = b = count = 0
+    for strip in strips:
+        small = strip.resize((8, 8), Image.LANCZOS).convert("RGB")
+        for px in small.getdata():
+            r += px[0]; g += px[1]; b += px[2]; count += 1
+    return (r // count, g // count, b // count)
+
+
 def _composite_portrait(reference_path: str | Path, background: Image.Image) -> bytes:
     """
-    Composite the reference photo (subject) onto the abstract background
-    with a large soft radial gradient so the subject blends naturally —
-    no cutout edge, no hard oval line.
+    Composite the reference photo onto the abstract background.
 
-    The subject fills ~70% of the frame height and is centred.
-    A Gaussian-blurred radial mask with a 22% feather radius ensures
-    the subject transitions smoothly into the painted background.
+    Subject occupies 68% of the frame so the abstract background is
+    clearly visible around it. A 25% Gaussian-feathered oval mask gives
+    a very gradual edge. A colour wash sampled from the background is
+    blended into the subject's edge zone so the colours integrate rather
+    than look like a hard paste.
     """
     bg_w, bg_h = background.size
 
-    # Load and scale reference to fill the target frame
+    # Scale subject to 68% of frame — leaves plenty of background visible
     with Image.open(reference_path) as ref:
-        ref = ref.convert("RGBA")
-
-    # Scale so the subject fills about 90% of the background
-    scale = min(bg_w / ref.width, bg_h / ref.height) * 0.92
+        ref = ref.convert("RGB")
+    scale = min(bg_w / ref.width, bg_h / ref.height) * 0.68
     new_w = int(ref.width * scale)
     new_h = int(ref.height * scale)
     ref = ref.resize((new_w, new_h), Image.LANCZOS)
 
-    # Centre position
     paste_x = (bg_w - new_w) // 2
     paste_y = (bg_h - new_h) // 2
 
-    # Radial gradient mask — pure white centre, fading to black at edges
+    # --- Build the main alpha mask (white centre, black edges) ---
     mask = Image.new("L", (new_w, new_h), 0)
     draw = ImageDraw.Draw(mask)
-
-    # Filled ellipse covering the subject body (72% wide, 85% tall)
-    inner_w = int(new_w * 0.72)
-    inner_h = int(new_h * 0.85)
+    inner_w = int(new_w * 0.68)
+    inner_h = int(new_h * 0.80)
     ix = (new_w - inner_w) // 2
     iy = (new_h - inner_h) // 2
     draw.ellipse([ix, iy, ix + inner_w, iy + inner_h], fill=255)
-
-    # Very wide Gaussian blur = soft feathered transition (22% of shorter side)
-    feather = max(int(min(new_w, new_h) * 0.22), 30)
+    feather = max(int(min(new_w, new_h) * 0.25), 30)
     mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
 
-    # Apply mask to reference as alpha
-    ref.putalpha(mask)
+    # --- Colour-wash: bleed background palette into the subject edges ---
+    bg_color = _sample_border_color(background)
+    color_wash = Image.new("RGB", (new_w, new_h), bg_color)
 
-    # Composite onto background
+    # Edge-wash mask: strong where the alpha is low (edges), absent at centre
+    wash_mask = Image.new("L", (new_w, new_h), 0)
+    draw2 = ImageDraw.Draw(wash_mask)
+    draw2.ellipse([ix, iy, ix + inner_w, iy + inner_h], fill=255)
+    wash_mask = wash_mask.filter(ImageFilter.GaussianBlur(radius=feather))
+    # Invert and soften: 0 = centre (no wash), 180 = edges (strong wash)
+    wash_mask = wash_mask.point(lambda p: max(0, 180 - int(p * 0.85)))
+
+    ref_rgba = ref.copy().convert("RGBA")
+    wash_rgba = color_wash.convert("RGBA")
+    wash_rgba.putalpha(wash_mask)
+    # Blend colour wash onto subject
+    ref_with_wash = Image.alpha_composite(ref_rgba, wash_rgba).convert("RGB")
+
+    # --- Final composite onto background ---
+    ref_final = ref_with_wash.convert("RGBA")
+    ref_final.putalpha(mask)
+
     canvas = background.copy().convert("RGBA")
-    canvas.paste(ref, (paste_x, paste_y), ref)
+    canvas.paste(ref_final, (paste_x, paste_y), ref_final)
 
     out = io.BytesIO()
     canvas.convert("RGB").save(out, format="JPEG", quality=95)
     logger.info(
         f"Composite: subject {new_w}x{new_h} at ({paste_x},{paste_y}) "
-        f"on {bg_w}x{bg_h} background, feather={feather}px"
+        f"on {bg_w}x{bg_h}, feather={feather}px, wash_colour={bg_color}"
     )
     return out.getvalue()
 
