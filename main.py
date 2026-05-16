@@ -14,6 +14,10 @@ Usage:
   python main.py --custom-image pet.jpg --portrait-type pet
   python main.py --custom-image photo.jpg --portrait-type faceless
   python main.py --custom-image pet.jpg --portrait-type pet --dry-run
+
+  # Generate room mockups for the latest (or a specific) output folder:
+  python main.py --mockup
+  python main.py --mockup --mockup-folder output/2026-05-13_custom_pet_portrait_1778727476
 """
 
 import argparse
@@ -43,6 +47,7 @@ from stages.stage_custom_portrait import (
     build_custom_prompt, get_next_variation,
     advance_variation_state, PORTRAIT_TYPES, PORTRAIT_STRENGTH,
 )
+from stages.stage_mockup import generate_mockups
 
 logger = get_logger("main")
 
@@ -350,6 +355,15 @@ def run_custom_portrait(
         update_run(run_id, {"github_url": github_url, "status": "success",
                             "generation_time_sec": generation_time, "estimated_cost_usd": cost})
 
+        # Stage 7: Room mockups
+        if not dry_run:
+            logger.info("── Stage 7: Generating room mockups")
+            try:
+                mockup_paths = generate_mockups(folder_path)
+                logger.info(f"Stage 7 done — {len(mockup_paths)} mockup(s) written")
+            except Exception as e:
+                logger.warning(f"Stage 7 mockup generation failed (non-fatal): {e}")
+
         # Advance variation state
         new_state = advance_variation_state(portrait_type, state)
         save_state(new_state)
@@ -369,6 +383,18 @@ def run_custom_portrait(
         return False
 
 
+def _latest_output_folder(config: dict) -> Path:
+    output_dir = Path(config.get("output_dir", "output"))
+    folders = sorted(
+        (p for p in output_dir.iterdir() if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not folders:
+        raise FileNotFoundError(f"No output folders found in {output_dir}")
+    return folders[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description="ArtPilot Daily — AI Art Print Generator")
     parser.add_argument("--dry-run", action="store_true", help="Run all stages without API calls or GitHub push")
@@ -378,7 +404,29 @@ def main():
     parser.add_argument("--custom-image", type=str, help="Path to reference photo for custom portrait")
     parser.add_argument("--portrait-type", type=str, choices=["pet", "faceless"],
                         help="Type of custom portrait: pet or faceless")
+    parser.add_argument("--mockup", action="store_true",
+                        help="Generate room mockup images for the latest output folder")
+    parser.add_argument("--mockup-folder", type=str,
+                        help="Path to a specific output folder to generate mockups for")
     args = parser.parse_args()
+
+    # Standalone mockup mode
+    if args.mockup or args.mockup_folder:
+        config = load_config()
+        if args.mockup_folder:
+            folder = Path(args.mockup_folder)
+        else:
+            folder = _latest_output_folder(config)
+        logger.info(f"=== Mockup mode | folder: {folder.name} ===")
+        try:
+            written = generate_mockups(folder)
+            for p in written:
+                logger.info(f"  → {p.name}")
+            logger.info(f"=== Mockup complete — {len(written)} image(s) ===")
+            sys.exit(0)
+        except Exception as e:
+            logger.exception(f"Mockup failed: {e}")
+            sys.exit(1)
 
     # Custom portrait mode
     if args.custom_image:
